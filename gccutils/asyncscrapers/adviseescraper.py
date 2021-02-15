@@ -4,8 +4,25 @@ import time
 
 
 class Advisee:
+    """A simple dataclass for keeping track of information about an adviser's advisee."""
 
     def __init__(self, **values):
+        """Constructor
+
+        :param values: a dictionary of values
+
+            * user_id:         the student's identification number
+            * email:           their grove city college email address
+            * name:            first and last name
+            * classification:  what year they are (Junior, Senior, etc)
+            * enrolled_date:   the MM/DD/YYYY they enrolled at the college
+            * planned_grad:    the MM/DD/YYYY they are predicted to graduate
+            * max_credits:     the most credits they can take per semester
+            * academic_status: if they are a Full-Time or Part-Time student
+            * degree:          "Bachelor of Science" for example
+            * major:           the title of the student's major
+        """
+
         self.user_id = values.pop('user_id')
         self.email = values.pop('email')
         self.name = values.pop('name')
@@ -21,11 +38,29 @@ class Advisee:
 
 
 class AdviseeOverviewParser:
+    """A helper class for parsing data from an advisee overview page."""
 
     def __init__(self, html_soup):
+        """Constructor
+
+        :param html_soup: the BeautifulSoup instance for the page
+        """
         self.html = html_soup
 
     def parse(self):
+        """Parses the HTML for important data relevant to the student.
+
+        :return: dictionary containing the data from the page
+
+            * classification
+            * enrolled_date
+            * planned_grad
+            * max_credits
+            * academic_status
+            * degree
+            * major
+        """
+
         table = self.get_table('pg0_V_tblSummaryLeft')
         rows = self.get_table_rows(table, 'left', 5)
         classification = self.fetch_value(rows[0])
@@ -50,6 +85,13 @@ class AdviseeOverviewParser:
         }
 
     def get_table(self, table_id):
+        """Finds and returns a table with the specified element id.
+
+        :param table_id: the unique identifier of the table to find
+        :return: the table element if found
+        :raises MissingElementError: if the table could not be found
+        """
+
         table = self.html.find('table', {'id': table_id})
         if table is None:
             raise errors.MissingElementError(f'Table {table_id} not found.')
@@ -57,23 +99,46 @@ class AdviseeOverviewParser:
 
     @staticmethod
     def get_table_rows(table, table_name, expected_row_count):
+        """Fetches the rows from a table element and ensures proper row count.
+
+        :param table: the table element to get the rows of
+        :param table_name: the name of the table for error handling
+        :param expected_row_count: the expected number of rows
+        :return: the rows belonging to the table
+        :raises UnexpectedElementPropertyError: if the number of rows differs from expectation
+        """
+
         table_rows = table.find_all('tr')
         row_count = len(table_rows)
+
+        # ensure the number of rows matches expectations
         if row_count != expected_row_count:
             raise errors.UnexpectedElementPropertyError(
                 f'Expected {table_name} table to have {expected_row_count} '
                 f'rows but found {row_count} instead.')
+
         return table_rows
 
     @staticmethod
     def fetch_value(entry):
+        """Returns the text value of an element's inner <td> child.
+
+        :param entry: a table element with an inner <td> child
+        :return: the value associated with the element's inner <td> child
+        :raises MissingElementError: if the element does not contain a <td> tag
+        """
+
         child = entry.find('td')
-        if child is None:
+
+        if child is None:  # raise an exception if the value could not be found
             raise errors.MissingElementError('entry contains no element <td></td>')
+
         return child.text
 
 
 class AsyncAdviseeScraperSession(AsyncScraperSession):
+    """Web-scraping thread for obtaining adviser's advisee information."""
+
     ADVISEEURL = 'https://my.gcc.edu/ICS/Advising/'
 
     def __init__(self, *args, **kwargs):
@@ -132,6 +197,8 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
         self.dc.http_get(self.ADVISEEURL)
 
     def nav_to_advisee_list(self):
+        """ Navigates to the list of advisees. """
+
         # TODO: verify that this is in fact correct
         search_btn = self.dc.html.find('input', {'id': 'pg0_V_btnSearch'})
 
@@ -156,6 +223,8 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
         self.dc.http_post(post_url, data=payload)
 
     def try_nav_next_page(self):
+        """ Navigates to the next page of advisees. """
+
         navigator = self.dc.html.find('div', {'class': 'letterNavigator'})
         if navigator is not None:
             for nav_element in navigator.find_all('a')[::-1]:
@@ -202,6 +271,8 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
         return return_value
 
     def table_row_to_advisee(self, table_row):
+        """ Converts a table row into an advisee object. """
+
         # fetch values from the table row
         email, name, postback, user_id = self.parse_table_row(table_row)
 
@@ -221,6 +292,7 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
             self.nav_back_from_overview()
 
     def nav_to_overview(self, nav_element):
+        """ Navigates to a specific advisee overview page. """
         # build the payload to navigate to the overview page
         # payload = {
         #     '__PORTLET': 'pg0$V$ltrNav',
@@ -237,6 +309,7 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
 
     @staticmethod
     def parse_table_row(table_row):
+        """ Extracts advisee data from the table row. """
 
         # find all columns of this table row
         row_columns = table_row.find_all('td')
@@ -280,6 +353,7 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
         return email_address, name, postback_element, user_id
 
     def nav_back_from_overview(self):
+        """ Navigates back to the advisee list from an overview page. """
 
         # find the postback text for the payload
         breadcrumbs = self.dc.html.find('span', {'id': 'portlet-breadcrumbs'})

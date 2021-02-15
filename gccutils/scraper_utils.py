@@ -5,6 +5,13 @@ import getpass
 
 
 class ScraperUtils:
+    """A utility class for navigating through https://my.gcc.edu/
+
+    MyGCC is a pain in the butt to programmatically navigate through due to
+    the way it handles state via hidden fields. This class abstracts many
+    of those messy details away to allow for easier navigation via requests.
+    """
+
     BASE_URL = 'https://my.gcc.edu'
 
     def __init__(self):
@@ -13,19 +20,46 @@ class ScraperUtils:
         self.html = None
 
     def http_get(self, url, check_errors=True, **kwargs):
+        """Executes an HTTP GET request to the specified url.
+
+        The response of the request gets saved to the `response` attribute.
+
+        :param url: the url to send the GET request to
+        :param check_errors: whether or not to check if problems occurred, default True
+        :param kwargs: optional arguments to include with the request
+        """
+
         self.response = self.session.get(url, **kwargs)
-        self.refresh_html()
-        if check_errors:
+        self.refresh_html()  # allows for immediate self.html reference
+        if check_errors:     # throws an exception if an error occurred
             self.check_for_error_message()
 
     def http_post(self, url, check_errors=True, **kwargs):
+        """Executes an HTTP POST request to the specified url.
+
+        The response of the request gets saved to the `response` attribute.
+
+        :param url: the url to send the POST request to
+        :param check_errors: whether or not to check if problems occurred, default True
+        :param kwargs: optional arguments to include with the request
+        """
+
         self.response = self.session.post(url, **kwargs)
-        self.refresh_html()
-        if check_errors:
+        self.refresh_html()  # allows for immediate self.html reference
+        if check_errors:     # throws an exception if an error occurred
             self.check_for_error_message()
 
     def perform_login(self, username=None, password=None):
-        self.http_get(self.BASE_URL)
+        """Attempts to login to https://my.gcc.edu/ using the provided credentials.
+
+        If no credentials are provided, they will be requested via a command line prompt.
+
+        :param username: the username to be used for login
+        :param password: the password to be used for login
+        :raises LoginError: if the supplied credentials are invalid
+        """
+
+        self.http_get(self.BASE_URL)  # the base url contains the login fields
         login_btn = self.html.find('input', {'type': 'submit', 'id': 'siteNavBar_btnLogin'})
         action, payload = self.prepare_payload(nav_element=login_btn)
         payload['userName'] = username or input('Username: ')
@@ -33,19 +67,36 @@ class ScraperUtils:
         self.http_post(self.BASE_URL + action, data=payload)
 
     def refresh_html(self):
+        """ Rebuilds the BeautifulSoup structure of the current page. """
+
         if self.response is not None:
-            self.html = BeautifulSoup(self.response.text, features='html.parser')
-        else:
+            raw_html_text = self.response.text
+            self.html = BeautifulSoup(raw_html_text, features='html.parser')
+
+        else:  # for when the scraper has not been used yet
             self.html = None
 
     def to_url(self, path):
-        """ Returns the url with the appropriate base url attached. """
+        """Ensures the base url is prefixed to the specified path.
+
+        :param path: the route of the url
+        :return: the base url prefixed string
+        """
+
+        # the url might already be formatted properly
         if path.startswith(self.BASE_URL):
             return path
+
+        # append the path to the base url
         path = '/' + path.lstrip('/')
         return self.BASE_URL + path
 
     def ensure_screen(self, url):
+        """Navigates to the specified url via GET request if we are not already there.
+
+        :param url: the desired url to navigate to
+        """
+
         if self.response is None or self.response.url != url:
             self.http_get(url)
 
@@ -157,3 +208,7 @@ class ScraperUtils:
                 raise errors.PageRedirectError('Page was redirected due to improper navigation.')
             else:
                 raise errors.PageError(f'An unknown page error occurred: {alert_text}')
+        else:
+            element = html.find('span', {'id': 'CP_V_lblLoginError'})
+            if element is not None:
+                raise errors.LoginError(element.get_text())

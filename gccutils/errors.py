@@ -15,6 +15,10 @@ class PageError(ScraperError):
     """ Caused when an action resulted in an alert container. """
 
 
+class LoginError(PageError):
+    """ Caused when improper credentials were used to perform login. """
+
+
 class PageRedirectError(PageError):
     """ Caused when navigating without proper view-state headers. """
 
