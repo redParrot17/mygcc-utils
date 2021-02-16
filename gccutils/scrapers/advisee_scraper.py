@@ -1,18 +1,13 @@
-from gccutils.asyncscrapers.scrapersession import AsyncScraperManager, AsyncScraperSession
+from gccutils.scraper_utils import ScraperUtils
 import gccutils.errors as errors
 import traceback
-import uuid
-import time
 
 
-__all__ = ('AsyncAdviseeScraper',)
+__all__ = ('AdviseeScraper',)
 
 
 class AdviseeOverviewParser:
     """A helper class for parsing data from an advisee overview page."""
-
-    LEFT_TABLE_ID = 'pg0_V_tblSummaryLeft'
-    RIGHT_TABLE_ID = 'pg0_V_tblSummaryRight'
 
     def __init__(self, html_soup):
         """Constructor
@@ -28,7 +23,7 @@ class AdviseeOverviewParser:
         """
         values = {}
 
-        table = self.get_table(self.LEFT_TABLE_ID)
+        table = self.get_table('pg0_V_tblSummaryLeft')
 
         for row in table.find_all('tr'):
             try:
@@ -37,7 +32,7 @@ class AdviseeOverviewParser:
             except errors.ScraperError:
                 traceback.print_exc()
 
-        table = self.get_table(self.RIGHT_TABLE_ID)
+        table = self.get_table('pg0_V_tblSummaryRight')
 
         for row in table.find_all('tr'):
             try:
@@ -56,7 +51,7 @@ class AdviseeOverviewParser:
         :raises MissingElementError: if the table could not be found
         """
 
-        table = self.html.find('table', id=table_id)
+        table = self.html.find('table', {'id': table_id})
         if table is None:
             raise errors.MissingElementError(f'Table {table_id} not found.')
         return table
@@ -88,85 +83,67 @@ class AdviseeOverviewParser:
         return name, value
 
 
-class AsyncAdviseeScraperSession(AsyncScraperSession):
-    """Web-scraping thread for obtaining adviser's advisee information."""
-
+class AdviseeScraper:
     STUDENT_TO_ROSTER_EVENT_TARGET = 'sb00bc534cd-3ee3-4fc5-be95-b3850319f0b8'
-    ADVISING_ROUTE = '/ICS/Advising'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, username, password):
+        self.scraper = ScraperUtils()
+        self.__username = username
+        self.__password = password
 
-    def run(self):
-        """
-        The primary method of this thread that controls the web-scraping of courses on https://my.gcc.edu/.
-
-        Do not manually call this method. Use ScraperSession#start() instead.
-        """
-
-        start_time = time.time()
-        callback = self.callback
-        thread_num = self.thread_num
-        num_threads = self.num_threads
-        self.aborted = False
-
-        print(f'advisee scraper thread [{thread_num}|{num_threads}] starting')
-
+    def fetch(self):
         # navigate to the first roster page
+        self.scraper.perform_login(
+            self.__username, self.__password)
         self.navigate_to_roster()
-        new_page = True
 
-        while new_page and not self.aborted:
+        new_page = True
+        all_students = []
+
+        while new_page:
             try:
                 student_rows = self.get_all_student_rows()
                 for student_row in student_rows:
-                    if not self.aborted:
-                        student = self.build_student_dict(*student_row)
-                        if student is not None:
-                            callback(student)
+                    student = self.build_student_dict(*student_row)
+                    if student is not None:
+                        all_students.append(student)
+                        print(student)
             except errors.ScraperError:
                 traceback.print_exc()
 
             # navigate to the next page
-            if not self.aborted and not self.try_nav_to_next_page():
+            if not self.try_nav_to_next_page():
                 new_page = False
 
-        runtime = int(time.time() - start_time)
-        print(f'advisee scraper thread [{thread_num}|{num_threads}] stopping after {runtime} seconds')
+        return all_students
 
     def navigate_to_roster(self):
-        dc = self.dc
+        scraper = self.scraper
 
         # navigate to advising tab
-        dc.http_get(dc.to_url(self.ADVISING_ROUTE))
-        dc.ensure_screen(dc.to_url(self.ADVISING_ROUTE))
+        scraper.http_get(scraper.to_url('/ICS/Advising'))
 
         # create the payload to be sent
-        search_btn = dc.html.find('input', id='pg0_V_btnSearch')
+        search_btn = scraper.html.find('input', id='pg0_V_btnSearch')
         self.perform_navigation(search_btn)
 
     def get_all_student_rows(self):
-        thread_num = self.thread_num
-        num_threads = self.num_threads
+        scraper = self.scraper
 
-        table = self.dc.html.find('tbody', class_='gbody')
+        table = scraper.html.find('tbody', class_='gbody')
         if table is None:
-            unique_filename = str(uuid.uuid4()) + '.html'
-            with open(unique_filename, 'w+') as file:
-                file.write(str(self.dc.html))
-            raise errors.MissingElementError(f'Roster table is missing. (state in {unique_filename})')
+            raise errors.MissingElementError('Roster table is missing.')
 
         rows = table.find_all('tr')
         row_index = 0
         results = []
 
         for row in rows:
-            if row_index % num_threads == thread_num:
-                try:
-                    email, name, user_id, nav_element = self.parse_table_row(row, row_index)
-                    results.append((email, name, user_id, nav_element))
-                except errors.ScraperError:
-                    traceback.print_exc()
+            try:
+                email, name, user_id, nav_element = self.parse_table_row(row, row_index)
+                results.append((email, name, user_id, nav_element))
+            except errors.ScraperError:
+                traceback.print_exc()
             row_index += 1
 
         return results
@@ -214,7 +191,7 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
 
         try:
 
-            parser = AdviseeOverviewParser(self.dc.html)
+            parser = AdviseeOverviewParser(self.scraper.html)
             overview = parser.parse()
             overview['email'] = email
             overview['name'] = name
@@ -238,7 +215,7 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
 
     def get_next_page_element(self):
         # find the navigation container
-        navigator = self.dc.html.find('div', class_='letterNavigator')
+        navigator = self.scraper.html.find('div', class_='letterNavigator')
 
         # ensure the list exists
         if navigator is not None:
@@ -251,18 +228,10 @@ class AsyncAdviseeScraperSession(AsyncScraperSession):
                 return nav_links[-1]
 
     def perform_navigation(self, nav_element, event_target=None):
-        dc = self.dc
-        action, payload = dc.prepare_payload(nav_element=nav_element)
+        scraper = self.scraper
+        action, payload = scraper.prepare_payload(nav_element=nav_element)
 
         if isinstance(event_target, str):
             payload['__EVENTTARGET'] = event_target
 
-        dc.http_post(dc.to_url(action), data=payload)
-
-
-class AsyncAdviseeScraper(AsyncScraperManager):
-
-    def __init__(self, username, password, callback):
-        super().__init__(username, password, AsyncAdviseeScraperSession, callback)
-        if self._cpu_count != 1:
-            print('WARNING: Advisee scraping is currently less stable when run on multiple threads.')
+        scraper.http_post(scraper.to_url(action), data=payload)

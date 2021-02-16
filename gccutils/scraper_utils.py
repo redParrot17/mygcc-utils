@@ -61,10 +61,11 @@ class ScraperUtils:
 
         self.http_get(self.BASE_URL)  # the base url contains the login fields
         login_btn = self.html.find('input', {'type': 'submit', 'id': 'siteNavBar_btnLogin'})
-        action, payload = self.prepare_payload(nav_element=login_btn)
-        payload['userName'] = username or input('Username: ')
-        payload['password'] = password or getpass.getpass()
-        self.http_post(self.BASE_URL + action, data=payload)
+        if login_btn is not None:
+            action, payload = self.prepare_payload(nav_element=login_btn)
+            payload['userName'] = username or input('Username: ')
+            payload['password'] = password or getpass.getpass()
+            self.http_post(self.BASE_URL + action, data=payload)
 
     def refresh_html(self):
         """ Rebuilds the BeautifulSoup structure of the current page. """
@@ -187,27 +188,17 @@ class ScraperUtils:
         if html is None:
             return
 
+        raw_html_text = str(html)
         is_logged_in = html.find('a', {'id': 'logout'}) is not None
-        title_bar = html.find('div', {'id': 'PageBar_pageTitle'})
-        if title_bar is not None:
-            alert_container = title_bar.find('div', {'class': 'alert-container'})
-        else:
-            alert_container = None
-        is_alert_present = alert_container is not None
+        redirect_error = "You have been redirected to this page because you attempted to navigate" in raw_html_text
+        unauthorized_error = "require you to be logged in" in raw_html_text
 
-        if is_alert_present:
-            alert_text = alert_container.get_text()
-            missing_permissions = 'require you to be logged in' in alert_text
-            redirect_error = 'attempted to navigate using your browser' in alert_text
-
-            if not is_logged_in:
-                raise errors.NotLoggedInError('You must be logged in to view this page.')
-            elif missing_permissions:
-                raise errors.UnauthorizedError('You are not authorized to view this page.')
-            elif redirect_error:
-                raise errors.PageRedirectError('Page was redirected due to improper navigation.')
-            else:
-                raise errors.PageError(f'An unknown page error occurred: {alert_text}')
+        if redirect_error:
+            raise errors.PageRedirectError('Page was redirected due to improper navigation.')
+        elif not is_logged_in and unauthorized_error:
+            raise errors.NotLoggedInError('You must be logged in to view this page.')
+        elif unauthorized_error:
+            raise errors.UnauthorizedError('You are not authorized to view this page.')
         else:
             element = html.find('span', {'id': 'CP_V_lblLoginError'})
             if element is not None:

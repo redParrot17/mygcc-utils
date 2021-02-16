@@ -61,7 +61,7 @@ class AsyncScraperManager:
         self.__callback = callback
         self.__sessions = []
         self.__session = session
-        self.__cpu_count = multiprocessing.cpu_count()
+        self._cpu_count = multiprocessing.cpu_count()
         self.reset()  # creates the initial thread team
 
     def is_running(self):
@@ -85,6 +85,28 @@ class AsyncScraperManager:
         for session in self.__sessions:
             session.start()
 
+    def start_and_wait(self):
+        # make sure the threads are not already running
+        if self.is_running():
+            raise RuntimeError('scrapers are already running')
+
+        values = []
+
+        def _internal_callback(value):
+            nonlocal values
+            values.append(value)
+
+        self.__callback = _internal_callback
+        self.reset()
+
+        for session in self.__sessions:
+            session.start()
+        for session in self.__sessions:
+            session.join()
+
+        return values
+
+
     def stop(self):
         """ Sends an abort request to each of the threads. """
 
@@ -99,7 +121,7 @@ class AsyncScraperManager:
         self.stop()
 
         # localizing the variables for quicker lookup
-        cpu_count = self.__cpu_count
+        cpu_count = self._cpu_count
         username = self.__username
         password = self.__password
         callback = self.__callback
