@@ -94,7 +94,6 @@ class CourseScraper:
 
 if __name__ == '__main__':
     from getpass import getpass
-    from main import pretty_print
     s = ScraperUtils()
     s.perform_login(input('Username: '), getpass())
     courses = CourseScraper(s).fetch()
